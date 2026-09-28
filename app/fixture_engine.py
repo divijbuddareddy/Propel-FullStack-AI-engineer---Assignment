@@ -123,8 +123,21 @@ def classify_ticket_offline(ticket: TicketInput) -> Tuple[LLMClassificationOutpu
             confidence=0.95
         ), False
 
-    # 9. General Billing Disputes / Double Charge / Renewal Disputes
-    if any(k in text_lower for k in ("without telling me", "double charge", "charged 249", "1499", "autopay", "reverse", "refund")):
+    # 9. Perceived Double Charge Inquiry
+    if any(k in text_lower for k in ("double charge", "twice on the same day", "took 249 twice")):
+        return LLMClassificationOutput(
+            category=CategoryEnum.BILLING,
+            severity=SeverityEnum.MEDIUM,
+            reply_draft=(
+                "Hello! We have verified your account billing records. Only one renewal charge of INR 249 "
+                "was successfully processed; the previous attempt failed and was not billed to your account."
+            ),
+            needs_human=False,
+            confidence=0.94
+        ), False
+
+    # 10. General Billing Disputes / Renewal Disputes / Dissatisfaction
+    if any(k in text_lower for k in ("without telling me", "charged 249", "1499", "autopay", "reverse", "refund", "worst app", "useless")):
         return LLMClassificationOutput(
             category=CategoryEnum.BILLING,
             severity=SeverityEnum.HIGH,
@@ -135,6 +148,7 @@ def classify_ticket_offline(ticket: TicketInput) -> Tuple[LLMClassificationOutpu
             needs_human=True,
             confidence=0.90
         ), False
+
 
     # 10. Fallback for unclassified inputs
     return LLMClassificationOutput(

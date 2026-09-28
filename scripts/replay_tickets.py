@@ -101,12 +101,19 @@ def main():
     print(header_fmt.format("Ticket", "Category", "Severity", "Refund Decision", "Needs Human", "Conf."))
     print("-" * 88)
 
+    # Reconfigure stdout encoding for safe Unicode output on Windows
+    if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
     for raw in tickets_data:
         ticket = TicketInput.model_validate(raw)
         result = process_ticket(ticket, mode=args.mode, db_path=args.db)
         results.append(result)
 
-        refund_str = f"{result.refund.decision.value} (₹{result.refund.amount_inr})"
+        refund_str = f"{result.refund.decision.value} (INR {result.refund.amount_inr})"
         print(header_fmt.format(
             result.ticket_id,
             result.category.value,
@@ -115,6 +122,7 @@ def main():
             str(result.needs_human),
             f"{result.confidence:.2f}"
         ))
+
 
     print("-" * 88)
     print(f"\nSuccessfully processed {len(results)} tickets in {args.mode} mode.\n")

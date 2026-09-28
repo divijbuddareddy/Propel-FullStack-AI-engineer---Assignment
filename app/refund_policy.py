@@ -73,41 +73,41 @@ def evaluate_refund_policy(
 
     # 6. Billing disputes, cancellations, payment issues, or unknown categories
     if category in (CategoryEnum.BILLING, CategoryEnum.CANCELLATION, CategoryEnum.PAYMENT_ISSUE, CategoryEnum.UNKNOWN):
-        # Look for successful renewal charges
         successful_renewals = [p for p in purchases if p.type == "renewal" and p.status == "successful"]
-        
-        if successful_renewals:
-            # Policy-sensitive dispute on existing renewal -> Route to human review with zero auto-payout
-            return RefundResult(
-                decision=RefundDecisionEnum.HUMAN_REVIEW,
-                amount_inr=0,
-                reason="Disputed renewal charge routed for human policy review"
-            )
-        
-        # User only had trial or failed transactions
+        failed_renewals = [p for p in purchases if p.type == "renewal" and p.status == "failed"]
+
+        # User only had trial or failed transactions during cancellation
         successful_trials = [p for p in purchases if p.type == "trial" and p.status == "successful"]
-        if successful_trials and category == CategoryEnum.CANCELLATION:
-            # Cancellation during trial: cancel subscription, trial fee non-refundable
+        if successful_trials and not successful_renewals and category == CategoryEnum.CANCELLATION:
             return RefundResult(
                 decision=RefundDecisionEnum.NO_REFUND,
                 amount_inr=0,
                 reason="Trial cancellation recorded; trial fee is non-refundable"
             )
-        
-        # In case of failed attempts only (e.g. perceived double charge where only 1 succeeded or 0 succeeded)
-        successful_charges = [p for p in purchases if p.status == "successful"]
-        if len(successful_charges) <= 1:
+
+        # Perceived duplicate charge where only 1 successful charge and 1+ failed attempts exist
+        if len(successful_renewals) == 1 and len(failed_renewals) >= 1:
             return RefundResult(
                 decision=RefundDecisionEnum.NO_REFUND,
                 amount_inr=0,
-                reason="No duplicate successful charge found on billing record"
+                reason="No duplicate successful charge found on billing record; only one renewal was debited"
             )
 
+        # Active renewal dispute (e.g. T-1001, T-1006)
+        if successful_renewals:
+            return RefundResult(
+                decision=RefundDecisionEnum.HUMAN_REVIEW,
+                amount_inr=0,
+                reason="Disputed renewal charge routed for human policy review"
+            )
+
+        # No successful renewal charges found
         return RefundResult(
-            decision=RefundDecisionEnum.HUMAN_REVIEW,
+            decision=RefundDecisionEnum.NO_REFUND,
             amount_inr=0,
-            reason="Billing inquiry with multiple transactions routed for human verification"
+            reason="No successful renewal charge on record"
         )
+
 
     # Catch-all safe default
     return RefundResult(

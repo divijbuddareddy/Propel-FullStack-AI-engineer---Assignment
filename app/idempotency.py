@@ -19,58 +19,63 @@ from app.schemas import (
     TriageResponse,
 )
 
-DEFAULT_DB_PATH = os.getenv("DATABASE_PATH", "triage.db")
+def get_db_path(db_path: Optional[str] = None) -> str:
+    """Returns the effective database path."""
+    return db_path or os.getenv("DATABASE_PATH", "triage.db")
 
 
 def get_db_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
-    """Creates a connection to SQLite with WAL mode enabled."""
-    path = db_path or DEFAULT_DB_PATH
+    """Creates a connection to SQLite with WAL mode enabled and ensures tables exist."""
+    path = get_db_path(db_path)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
-    # Enable Write-Ahead Logging for concurrency
     if path != ":memory:":
         conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA foreign_keys=ON;")
+    _ensure_tables(conn)
     return conn
+
+
+def _ensure_tables(conn: sqlite3.Connection) -> None:
+    """Ensures database schema exists."""
+    with conn:
+        conn.executescript("""
+        CREATE TABLE IF NOT EXISTS triage_results (
+            ticket_id TEXT PRIMARY KEY,
+            request_id TEXT NOT NULL,
+            category TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            confidence REAL NOT NULL,
+            reply_draft TEXT NOT NULL,
+            needs_human INTEGER NOT NULL,
+            refund_decision TEXT NOT NULL,
+            refund_amount INTEGER NOT NULL,
+            refund_reason TEXT NOT NULL,
+            is_fallback INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS refund_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_id TEXT UNIQUE NOT NULL,
+            decision TEXT NOT NULL,
+            amount_inr INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(ticket_id) REFERENCES triage_results(ticket_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_triage_category ON triage_results(category);
+        CREATE INDEX IF NOT EXISTS idx_triage_created_at ON triage_results(created_at);
+        """)
 
 
 def init_db(db_path: Optional[str] = None) -> None:
     """Initializes tables for triage results and refund actions."""
     conn = get_db_connection(db_path)
-    try:
-        with conn:
-            conn.executescript("""
-            CREATE TABLE IF NOT EXISTS triage_results (
-                ticket_id TEXT PRIMARY KEY,
-                request_id TEXT NOT NULL,
-                category TEXT NOT NULL,
-                severity TEXT NOT NULL,
-                confidence REAL NOT NULL,
-                reply_draft TEXT NOT NULL,
-                needs_human INTEGER NOT NULL,
-                refund_decision TEXT NOT NULL,
-                refund_amount INTEGER NOT NULL,
-                refund_reason TEXT NOT NULL,
-                is_fallback INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
+    conn.close()
 
-            CREATE TABLE IF NOT EXISTS refund_actions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ticket_id TEXT UNIQUE NOT NULL,
-                decision TEXT NOT NULL,
-                amount_inr INTEGER NOT NULL,
-                status TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY(ticket_id) REFERENCES triage_results(ticket_id)
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_triage_category ON triage_results(category);
-            CREATE INDEX IF NOT EXISTS idx_triage_created_at ON triage_results(created_at);
-            """)
-    finally:
-        conn.close()
 
 
 def get_persisted_triage(ticket_id: str, db_path: Optional[str] = None) -> Optional[TriageResponse]:
